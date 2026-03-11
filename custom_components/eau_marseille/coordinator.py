@@ -141,7 +141,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
         metadata = {
             "has_mean": False,
             "has_sum": True,
-            "mean_type": "none",
+            "mean_type": 0,
             "unit_class": "volume",
             "name": "Eau de Marseille - Consommation",
             "source": DOMAIN,
