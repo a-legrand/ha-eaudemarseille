@@ -58,7 +58,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             return
 
         # New clean statistic_id (v2) to avoid old corrupted metadata
-        statistic_id = f"{DOMAIN}:water_{contract_id}"
+        statistic_id = f"{DOMAIN}:m3_{contract_id}"
 
         now = datetime.now()
         end = now.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -112,7 +112,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             except ValueError:
                 continue
 
-            volume = entry.get("volumeConsoEnLitres", 0) or 0
+            volume = entry.get("volumeConsoEnM3", 0) or 0
             running_sum += volume
 
             dt_utc = dt.astimezone(timezone.utc).replace(
@@ -137,13 +137,13 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             "name": "Eau de Marseille - Consommation",
             "source": DOMAIN,
             "statistic_id": statistic_id,
-            "unit_of_measurement": "L",
+            "unit_of_measurement": "m³",
         }
 
         try:
             async_add_external_statistics(self.hass, metadata, statistics)
             _LOGGER.info(
-                "Imported %d water statistics to %s (total %.0f L)",
+                "Imported %d water statistics to %s (total %.3f m³)",
                 len(statistics), statistic_id, running_sum,
             )
             self._stats_imported = True
