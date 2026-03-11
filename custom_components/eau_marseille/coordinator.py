@@ -142,6 +142,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             "has_mean": False,
             "has_sum": True,
             "mean_type": "none",
+            "unit_class": "volume",
             "name": "Eau de Marseille - Consommation",
             "source": DOMAIN,
             "statistic_id": statistic_id,
