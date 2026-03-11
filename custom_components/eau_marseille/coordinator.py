@@ -63,15 +63,21 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
 
         statistic_id = f"{DOMAIN}:consommation_{contract_id}"
 
-        # Purge old corrupted metadata then re-import clean
-        try:
-            instance = get_instance(self.hass)
-            await instance.async_add_executor_job(
-                clear_statistics, instance, [statistic_id]
-            )
-            _LOGGER.info("Cleared old statistics for %s", statistic_id)
-        except Exception:
-            _LOGGER.debug("No old statistics to clear for %s", statistic_id)
+        # One-time purge of old corrupted metadata (mean_type was stored as string "none")
+        # This flag file prevents re-purging on every restart
+        import os
+        purge_flag = self.hass.config.path(f".eau_marseille_purged_{contract_id}")
+        if not os.path.exists(purge_flag):
+            try:
+                instance = get_instance(self.hass)
+                await instance.async_add_executor_job(
+                    clear_statistics, instance, [statistic_id]
+                )
+                _LOGGER.info("Cleared old statistics for %s (one-time fix)", statistic_id)
+                with open(purge_flag, "w") as f:
+                    f.write("done")
+            except Exception:
+                _LOGGER.debug("No old statistics to clear for %s", statistic_id)
 
         now = datetime.now()
         end = now.replace(hour=23, minute=59, second=59, microsecond=0)
