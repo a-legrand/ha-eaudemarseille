@@ -64,7 +64,6 @@ class WaterConsumptionData:
 
     # Meter index (from last daily entry)
     meter_index_liters: float | None = None
-    meter_index_m3: float | None = None
 
     # Last official reading (from getDerniereConsommationReleveeSem)
     last_reading_index_m3: float | None = None
@@ -249,7 +248,6 @@ class EauMarseilleApiClient:
             result.daily_consumption_liters = last["volumeConsoEnLitres"]
             result.daily_date = last["dateReleve"][:10]
             result.meter_index_liters = last["valeurIndex"]
-            result.meter_index_m3 = last["valeurIndex"] / 1000
 
         # Monthly: current month
         month_start = now.replace(

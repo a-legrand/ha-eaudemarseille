@@ -68,16 +68,6 @@ SENSORS: tuple[EauMarseilleSensorEntityDescription, ...] = (
         value_fn=lambda d: d.meter_index_liters,
     ),
     EauMarseilleSensorEntityDescription(
-        key="meter_index_m3",
-        name="Index compteur m³",
-        native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
-        device_class=SensorDeviceClass.WATER,
-        state_class=SensorStateClass.TOTAL_INCREASING,
-        icon="mdi:gauge",
-        suggested_display_precision=3,
-        value_fn=lambda d: d.meter_index_m3,
-    ),
-    EauMarseilleSensorEntityDescription(
         key="last_reading_index",
         name="Dernier relevé officiel",
         native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
