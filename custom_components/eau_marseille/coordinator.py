@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from homeassistant.components.recorder.statistics import async_import_statistics
+from homeassistant.components.recorder.statistics import async_add_external_statistics
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -123,8 +123,13 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             volume = entry.get("volumeConsoEnLitres", 0) or 0
             running_sum += volume
 
+            # HA requires: timezone-aware, at the top of the hour, in UTC
+            dt_utc = dt.astimezone(timezone.utc).replace(
+                minute=0, second=0, microsecond=0
+            )
+
             statistics.append({
-                "start": dt,
+                "start": dt_utc,
                 "state": volume,
                 "sum": running_sum,
             })
@@ -148,7 +153,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
         )
 
         try:
-            async_import_statistics(self.hass, metadata, statistics)
+            async_add_external_statistics(self.hass, metadata, statistics)
             _LOGGER.info(
                 "Imported %d water statistics (total %.0f L / %.1f m³)",
                 len(statistics), running_sum, running_sum / 1000,
