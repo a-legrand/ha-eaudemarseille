@@ -141,6 +141,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
         metadata = {
             "has_mean": False,
             "has_sum": True,
+            "mean_type": "none",
             "name": "Eau de Marseille - Consommation",
             "source": DOMAIN,
             "statistic_id": statistic_id,
@@ -155,8 +156,8 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
         try:
             async_add_external_statistics(self.hass, metadata, statistics)
             _LOGGER.info(
-                "Imported %d water statistics (total %.0f L / %.1f m³)",
-                len(statistics), running_sum, running_sum / 1000,
+                "Imported %d water statistics (total %.0f L)",
+                len(statistics), running_sum,
             )
             self._stats_imported = True
         except Exception:

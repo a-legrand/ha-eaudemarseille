@@ -21,4 +21,4 @@ URL_LAST_READING = f"{API_BASE}/Consommation/getDerniereConsommationReleveeSem"
 GRANULARITY_DAILY = "JOURNEE"
 GRANULARITY_MONTHLY = "MOIS"
 
-DEFAULT_SCAN_INTERVAL = 3600  # 1 hour
+DEFAULT_SCAN_INTERVAL = 43200  # 12 hours (2x per day)
