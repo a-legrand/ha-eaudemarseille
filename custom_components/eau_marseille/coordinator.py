@@ -66,6 +66,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             source=DOMAIN,
             statistic_id=statistic_id,
             unit_of_measurement="m³",
+            statistic_type="sum"
         )
 
         # Build statistics from daily history
