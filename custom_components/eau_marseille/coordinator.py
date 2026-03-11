@@ -5,11 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from homeassistant.components.recorder import get_instance
-from homeassistant.components.recorder.statistics import (
-    async_add_external_statistics,
-    clear_statistics,
-)
+from homeassistant.components.recorder.statistics import async_add_external_statistics
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -61,28 +57,12 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
         if not contract_id:
             return
 
-        statistic_id = f"{DOMAIN}:consommation_{contract_id}"
-
-        # One-time purge of old corrupted metadata (mean_type was stored as string "none")
-        # This flag file prevents re-purging on every restart
-        import os
-        purge_flag = self.hass.config.path(f".eau_marseille_purged_{contract_id}")
-        if not os.path.exists(purge_flag):
-            try:
-                instance = get_instance(self.hass)
-                await instance.async_add_executor_job(
-                    clear_statistics, instance, [statistic_id]
-                )
-                _LOGGER.info("Cleared old statistics for %s (one-time fix)", statistic_id)
-                with open(purge_flag, "w") as f:
-                    f.write("done")
-            except Exception:
-                _LOGGER.debug("No old statistics to clear for %s", statistic_id)
+        # New clean statistic_id (v2) to avoid old corrupted metadata
+        statistic_id = f"{DOMAIN}:water_{contract_id}"
 
         now = datetime.now()
         end = now.replace(hour=23, minute=59, second=59, microsecond=0)
 
-        # Fetch monthly data for the past 3 years
         three_years_ago = (now - timedelta(days=365 * 3)).replace(
             month=1, day=1, hour=0, minute=0, second=0, microsecond=0
         )
@@ -97,13 +77,11 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
                 all_entries.extend(monthly)
                 _LOGGER.debug("Fetched %d monthly entries", len(monthly))
 
-            # Also fetch daily for last 30 days (more granular)
             d30 = (now - timedelta(days=30)).replace(
                 hour=0, minute=0, second=0, microsecond=0
             )
             daily = await self.client.get_consumption(d30, end, GRANULARITY_DAILY)
             if daily:
-                # Remove monthly entries that overlap with daily
                 daily_months = {e["dateReleve"][:7] for e in daily}
                 all_entries = [
                     e for e in all_entries
@@ -117,14 +95,11 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             return
 
         if not all_entries:
-            _LOGGER.warning("No historical data to import")
             self._stats_imported = True
             return
 
-        # Sort ascending by date
         all_entries.sort(key=lambda e: e.get("dateReleve", ""))
 
-        # Build statistics with running sum
         statistics = []
         running_sum = 0.0
 
@@ -140,7 +115,6 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             volume = entry.get("volumeConsoEnLitres", 0) or 0
             running_sum += volume
 
-            # HA requires: timezone-aware, at the top of the hour, in UTC
             dt_utc = dt.astimezone(timezone.utc).replace(
                 minute=0, second=0, microsecond=0
             )
@@ -169,8 +143,8 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
         try:
             async_add_external_statistics(self.hass, metadata, statistics)
             _LOGGER.info(
-                "Imported %d water statistics (total %.0f L)",
-                len(statistics), running_sum,
+                "Imported %d water statistics to %s (total %.0f L)",
+                len(statistics), statistic_id, running_sum,
             )
             self._stats_imported = True
         except Exception:
