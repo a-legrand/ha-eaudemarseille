@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from homeassistant.components.recorder.statistics import async_add_external_statistics
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+)
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ApiError, AuthenticationError, EauMarseilleApiClient, WaterConsumptionData
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, GRANULARITY_DAILY, GRANULARITY_MONTHLY
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,10 +36,9 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
         )
         self.client = client
-        self._stats_imported = False
 
     async def _async_update_data(self) -> WaterConsumptionData:
-        """Fetch data and import statistics."""
+        """Fetch data from API."""
         try:
             data = await self.client.get_data()
         except AuthenticationError as err:
@@ -46,106 +48,57 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
         except Exception as err:
             raise UpdateFailed(f"Unexpected error: {err}") from err
 
-        if not self._stats_imported:
-            await self._import_statistics()
-
+        # Push historical data as external statistics (m³)
+        await self._import_statistics(data)
         return data
 
-    async def _import_statistics(self) -> None:
-        """Import historical consumption into HA long-term statistics."""
-        contract_id = self.client._contract_id
-        if not contract_id:
+    async def _import_statistics(self, data: WaterConsumptionData) -> None:
+        """Import daily history as external statistics in m³."""
+        if not data.daily_history:
             return
 
-        # New clean statistic_id (v2) to avoid old corrupted metadata
-        statistic_id = f"{DOMAIN}:m3_{contract_id}"
+        statistic_id = f"{DOMAIN}:eau_m3"
 
-        now = datetime.now()
-        end = now.replace(hour=23, minute=59, second=59, microsecond=0)
-
-        three_years_ago = (now - timedelta(days=365 * 3)).replace(
-            month=1, day=1, hour=0, minute=0, second=0, microsecond=0
+        metadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name="Consommation eau m³",
+            source=DOMAIN,
+            statistic_id=statistic_id,
+            unit_of_measurement="m³",
         )
 
-        all_entries = []
+        # Build statistics from daily history
+        # daily_history entries have: date, liters, m3, index
+        statistics: list[StatisticData] = []
+        cumulative_sum = 0.0
 
-        try:
-            monthly = await self.client.get_consumption(
-                three_years_ago, end, GRANULARITY_MONTHLY
-            )
-            if monthly:
-                all_entries.extend(monthly)
-                _LOGGER.debug("Fetched %d monthly entries", len(monthly))
+        # Sort by date ascending
+        sorted_history = sorted(data.daily_history, key=lambda e: e["date"])
 
-            d30 = (now - timedelta(days=30)).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            daily = await self.client.get_consumption(d30, end, GRANULARITY_DAILY)
-            if daily:
-                daily_months = {e["dateReleve"][:7] for e in daily}
-                all_entries = [
-                    e for e in all_entries
-                    if e["dateReleve"][:7] not in daily_months
-                ]
-                all_entries.extend(daily)
-                _LOGGER.debug("Fetched %d daily entries", len(daily))
-
-        except Exception:
-            _LOGGER.exception("Error fetching historical data")
-            return
-
-        if not all_entries:
-            self._stats_imported = True
-            return
-
-        all_entries.sort(key=lambda e: e.get("dateReleve", ""))
-
-        statistics = []
-        running_sum = 0.0
-
-        for entry in all_entries:
-            date_str = entry.get("dateReleve", "")
-            if not date_str:
-                continue
+        for entry in sorted_history:
+            # Parse date and set to top of hour, UTC
             try:
-                dt = datetime.fromisoformat(date_str)
-            except ValueError:
+                dt = datetime.fromisoformat(entry["date"][:10])
+                dt_utc = dt.replace(hour=0, minute=0, second=0, tzinfo=UTC)
+            except (ValueError, KeyError):
                 continue
 
-            volume = entry.get("volumeConsoEnM3", 0) or 0
-            running_sum += volume
+            m3_value = entry.get("m3", 0) or 0
+            cumulative_sum += m3_value
 
-            dt_utc = dt.astimezone(timezone.utc).replace(
-                minute=0, second=0, microsecond=0
+            statistics.append(
+                StatisticData(
+                    start=dt_utc,
+                    sum=cumulative_sum,
+                    state=m3_value,
+                )
             )
 
-            statistics.append({
-                "start": dt_utc,
-                "state": volume,
-                "sum": running_sum,
-            })
-
-        if not statistics:
-            self._stats_imported = True
-            return
-
-        metadata = {
-            "has_mean": False,
-            "has_sum": True,
-            "mean_type": 0,
-            "unit_class": "volume",
-            "name": "Eau de Marseille - Consommation",
-            "source": DOMAIN,
-            "statistic_id": statistic_id,
-            "unit_of_measurement": "m³",
-        }
-
-        try:
+        if statistics:
             async_add_external_statistics(self.hass, metadata, statistics)
-            _LOGGER.info(
-                "Imported %d water statistics to %s (total %.3f m³)",
-                len(statistics), statistic_id, running_sum,
+            _LOGGER.debug(
+                "Imported %d external statistics entries for %s",
+                len(statistics),
+                statistic_id,
             )
-            self._stats_imported = True
-        except Exception:
-            _LOGGER.exception("Failed to import statistics")
