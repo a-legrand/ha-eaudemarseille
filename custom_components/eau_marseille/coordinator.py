@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from homeassistant.components.recorder.statistics import async_add_external_statistics
+from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.statistics import (
+    async_add_external_statistics,
+    clear_statistics,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -58,7 +62,16 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             return
 
         statistic_id = f"{DOMAIN}:consommation_{contract_id}"
-        _LOGGER.debug("Importing statistics with id: %s", statistic_id)
+
+        # Purge old corrupted metadata then re-import clean
+        try:
+            instance = get_instance(self.hass)
+            await instance.async_add_executor_job(
+                clear_statistics, instance, [statistic_id]
+            )
+            _LOGGER.info("Cleared old statistics for %s", statistic_id)
+        except Exception:
+            _LOGGER.debug("No old statistics to clear for %s", statistic_id)
 
         now = datetime.now()
         end = now.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -85,9 +98,7 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             daily = await self.client.get_consumption(d30, end, GRANULARITY_DAILY)
             if daily:
                 # Remove monthly entries that overlap with daily
-                daily_months = {
-                    e["dateReleve"][:7] for e in daily
-                }
+                daily_months = {e["dateReleve"][:7] for e in daily}
                 all_entries = [
                     e for e in all_entries
                     if e["dateReleve"][:7] not in daily_months
@@ -148,11 +159,6 @@ class EauMarseilleCoordinator(DataUpdateCoordinator[WaterConsumptionData]):
             "statistic_id": statistic_id,
             "unit_of_measurement": "L",
         }
-
-        _LOGGER.debug(
-            "Importing %d stats, statistic_id=%s, sum=%.0f L",
-            len(statistics), statistic_id, running_sum,
-        )
 
         try:
             async_add_external_statistics(self.hass, metadata, statistics)
