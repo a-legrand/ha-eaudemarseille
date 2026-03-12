@@ -40,6 +40,9 @@ def build_statistics(
     cost_sum = 0.0
 
     for entry in daily_data:
+        if "volumeConsoEnLitres" not in entry or "volumeConsoEnM3" not in entry:
+            log.debug("Skipping entry without consumption data: %s", entry.get("dateReleve", "?"))
+            continue
         date_str = entry["dateReleve"][:10]  # "YYYY-MM-DD"
         liters = float(entry["volumeConsoEnLitres"])
         m3 = float(entry["volumeConsoEnM3"])
