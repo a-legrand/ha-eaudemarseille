@@ -1,75 +1,98 @@
-# Eau de Marseille Métropole (SEMM) - Home Assistant Integration
+# HA Eau de Marseille
 
-Intégration custom pour Home Assistant permettant de récupérer les données de consommation d'eau depuis l'espace client SEMM.
+Container Docker standalone qui importe la consommation d'eau (Eau de Marseille Métropole / SEMM) dans Home Assistant, à la manière de [ha-linky](https://github.com/bokub/ha-linky).
 
-## Capteurs
+## Données importées
 
-| Capteur | Description | Unité |
-|---------|-------------|-------|
-| Consommation journalière | Dernière journée avec données (télérelevé) | L |
-| Consommation mensuelle | Total du mois en cours | L |
-| Consommation annuelle | Total de l'année en cours | L |
-| Index compteur | Dernier index télérelevé | L |
-| Dernier relevé officiel | Index au dernier relevé officiel | m³ |
-| Date dernier relevé | Date du dernier relevé officiel | - |
-| État compteur | Anomalie éventuelle | - |
+| Statistique | Unité | Description |
+|-------------|-------|-------------|
+| `eaudemarseille:<contrat>` | L | Consommation journalière en litres (cumulative) |
+| `eaudemarseille:<contrat>_cost` | € | Coût journalier (si `price_per_m3` configuré) |
 
-Le capteur "Consommation journalière" expose un attribut `history` avec les 7 derniers jours.
+Les statistiques sont disponibles dans le dashboard Énergie de HA (section Eau) et dans les graphiques d'historique.
 
 ## Prérequis
 
-- Home Assistant 2024.1.0+
 - Compte espace client : https://espaceclients.eaudemarseille-metropole.fr
-- Télérelevé activé (pour la consommation journalière)
+- Télérelevé activé
+- Token Home Assistant longue durée (Profil > Tokens d'accès longue durée)
 
 ## Installation
 
-### HACS (recommandé)
+### 1. Créer la configuration
 
-1. HACS > Intégrations > menu ⋮ > Dépôts personnalisés
-2. Ajouter l'URL du dépôt, catégorie "Intégration"
-3. Chercher "Eau de Marseille", installer, redémarrer HA
+```bash
+mkdir -p ~/ha-eaudemarseille
+cp options.json.example ~/ha-eaudemarseille/options.json
+# Éditer avec vos identifiants et tarif
+```
 
-### Manuel
+**options.json** :
+```json
+{
+  "username": "votre_identifiant@email.com",
+  "password": "votre_mot_de_passe",
+  "price_per_m3": 3.45,
+  "name": "Eau de Marseille"
+}
+```
 
-Copier `custom_components/eau_marseille/` dans `config/custom_components/` et redémarrer HA.
+| Champ | Requis | Description |
+|-------|--------|-------------|
+| `username` | oui | Identifiant espace client SEMM |
+| `password` | oui | Mot de passe |
+| `price_per_m3` | non | Prix au m³ en € (pour le calcul du coût) |
+| `name` | non | Nom affiché dans HA (défaut: "Eau de Marseille") |
+| `action` | non | `sync` (défaut) ou `reset` (supprime les statistiques) |
 
-## Configuration
+### 2. Builder l'image Docker
 
-Paramètres > Appareils et services > Ajouter une intégration > "Eau de Marseille"
+```bash
+docker build https://github.com/a-legrand/ha-eaudemarseille.git \
+  -f standalone.Dockerfile \
+  -t ha-eaudemarseille
+```
 
-## API
+### 3. Lancer le container
+
+```bash
+docker run -d \
+  --name ha-eaudemarseille \
+  --network container:homeassistant \
+  -e SUPERVISOR_TOKEN='VOTRE_TOKEN_LONGUE_DUREE' \
+  -e WS_URL='ws://localhost:8123/api/websocket' \
+  -e TZ='Europe/Paris' \
+  -v ~/ha-eaudemarseille:/data \
+  --restart unless-stopped \
+  ha-eaudemarseille
+```
+
+## Fonctionnement
+
+1. Au démarrage, se connecte à l'API SEMM et à HA via WebSocket
+2. Si première exécution : importe jusqu'à 3 ans d'historique journalier
+3. Sinon : synchronise les nouvelles données depuis la dernière statistique connue
+4. Planifie une synchro automatique 2x/jour (6h et 9h, minute aléatoire)
+
+## API SEMM
 
 L'intégration utilise l'API reverse-engineerée de l'espace client SEMM (SOMEI).
 
 ### Authentification (2 étapes)
 
 ```
-1. POST /webapi/Acces/generateToken
-   Headers: { ConversationId: <uuid>, Token: <app_password> }
-   Body: { ConversationId, ClientId, AccessKey }
-   → { token, expirationDate }
-
-2. POST /webapi/Utilisateur/authentification
-   Headers: { ConversationId: <uuid>, Token: <app_token> }
-   Body: { identifiant, motDePasse }
-   → { tokenAuthentique, utilisateurInfo }
+1. POST /webapi/Acces/generateToken → app token
+2. POST /webapi/Utilisateur/authentification → user token
 ```
 
-### Endpoints données
+### Données
 
 ```
-GET /webapi/Abonnement/contrats?userWebId=&recherche=&tri=NumeroContrat&triDecroissant=false&indexPage=0&nbElements=500
-→ { resultats: [{ numeroContrat, nomClientTitulaire, ... }] }
-
-GET /webapi/Consommation/listeConsommationsInstanceAlerteChart/{contractId}/{startTs}/{endTs}/{JOURNEE|SEMAINE|MOIS}/true
-→ { consommations: [{ dateReleve, valeurIndex, volumeConsoEnLitres, volumeConsoEnM3 }] }
-
-GET /webapi/Consommation/getDerniereConsommationReleveeSem/{contractId}
-→ { dateReleve, valeurIndex, volumeConsoEnLitres, nbJours, moyenne, libelleAnomalieReleve }
+GET /webapi/Consommation/listeConsommationsInstanceAlerteChart/{contrat}/{startTs}/{endTs}/JOURNEE/true
+→ { consommations: [{ dateReleve, volumeConsoEnLitres, volumeConsoEnM3, valeurIndex }] }
 ```
 
-## Test
+## Test API
 
 ```bash
 pip install aiohttp

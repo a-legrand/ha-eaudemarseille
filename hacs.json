@@ -1,7 +1,0 @@
-{
-  "name": "Eau de Marseille Métropole (SEMM)",
-  "render_readme": true,
-  "domains": ["sensor"],
-  "country": "FR",
-  "homeassistant": "2024.1.0"
-}
