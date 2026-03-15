@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import websockets
 
@@ -146,7 +147,10 @@ class HomeAssistantClient:
             points = result.get("result", {}).get(statistic_id, [])
             if points:
                 last = points[-1]
-                log.info("Last statistic: %s", last["start"][:10])
+                start = last["start"]
+                local_tz = ZoneInfo(os.environ.get("TZ", "Europe/Paris"))
+                label = start[:10] if isinstance(start, str) else datetime.fromtimestamp(start / 1000, tz=local_tz).strftime("%Y-%m-%d")
+                log.info("Last statistic: %s", label)
                 return last
 
         log.warning("No statistics found for %s", contract_id)

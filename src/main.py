@@ -144,8 +144,13 @@ async def sync(
         return
 
     # Parse last stat date
-    last_date_str = last_stat["start"][:10]
-    last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
+    raw_start = last_stat["start"]
+    if isinstance(raw_start, str):
+        last_date_str = raw_start[:10]
+        last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
+    else:
+        last_date = datetime.fromtimestamp(raw_start / 1000, tz=LOCAL_TZ).replace(tzinfo=None)
+        last_date_str = last_date.strftime("%Y-%m-%d")
 
     now = datetime.now()
     # Only sync if last data is at least 2 days old and it's past 6am
@@ -230,7 +235,7 @@ async def main() -> None:
     scheduler.add_job(
         run_sync,
         "cron",
-        hour="6,9",
+        hour="6,14",
         minute=random_minute,
         second=random_second,
         args=[config],
@@ -238,7 +243,7 @@ async def main() -> None:
     scheduler.start()
 
     log.info(
-        "Sync scheduled daily at 06:%02d:%02d and 09:%02d:%02d",
+        "Sync scheduled daily at 06:%02d:%02d and 14:%02d:%02d",
         random_minute, random_second, random_minute, random_second,
     )
 
